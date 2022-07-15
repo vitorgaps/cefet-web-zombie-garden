@@ -1,22 +1,19 @@
-import express from 'express'
-import db from'../db.js'
-const router = express.Router()
-
+import express from "express";
+import db from "../db.js";
+const router = express.Router();
 
 /* GET lista de pessoas. */
-router.get('/', async (req, res, next) => {
-
+router.get("/", async (req, res, next) => {
   try {
     const [people] = await db.execute({
-      sql: 'SELECT * FROM person LEFT OUTER JOIN zombie ON eatenBy = zombie.id',
-  
+      sql: "SELECT * FROM person LEFT OUTER JOIN zombie ON eatenBy = zombie.id",
+
       // nestTables resolve conflitos de haver campos com mesmo nome nas tabelas
       // nas quais fizemos JOIN (neste caso, `person` e `zombie`).
       // descrição: https://github.com/felixge/node-mysql#joins-with-overlapping-column-names
-      nestTables: true
-    })
+      nestTables: true,
+    });
 
-    
     // Exercício 3: negociação de conteúdo para esta resposta
     //
     // renderiza a view de listagem de pessoas, passando como contexto
@@ -26,60 +23,56 @@ router.get('/', async (req, res, next) => {
     //   - por exemplo, assim que uma pessoa é excluída, uma mensagem de
     //     sucesso pode ser mostrada
     // - error: idem para mensagem de erro
-    res.render('list-people', {
+    res.render("list-people", {
       people,
-      success: req.flash('success'),
-      error: req.flash('error')
-    })
-
+      success: req.flash("success"),
+      error: req.flash("error"),
+    });
   } catch (error) {
-    console.error(error)
-    error.friendlyMessage = 'Problema ao recuperar pessoas'
-    next(error)
+    console.error(error);
+    error.friendlyMessage = "Problema ao recuperar pessoas";
+    next(error);
   }
-})
-
+});
 
 /* PUT altera pessoa para morta por um certo zumbi */
-router.put('/eaten/', async (req, res, next) => {
-  const zombieId = req.body.zombie
-  const personId = req.body.person
+router.put("/eaten/", async (req, res, next) => {
+  const zombieId = req.body.zombie;
+  const personId = req.body.person;
 
   if (!zombieId || !personId) {
-    req.flash('error', 'Nenhum id de pessoa ou zumbi foi passado!')
-    res.redirect('/')
+    req.flash("error", "Nenhum id de pessoa ou zumbi foi passado!");
+    res.redirect("/");
     return;
   }
 
   try {
-    const [result] = await db.execute(`UPDATE person 
-                                       SET alive=false, eatenBy=?
-                                       WHERE id=?`,
-                                      [zombieId, personId])
+    const [result] = await db.execute(
+      `UPDATE person SET alive=false, eatenBy=? WHERE id=?`,
+      [zombieId, personId]
+    );
     if (result.affectedRows !== 1) {
-      req.flash('error', 'Não há pessoa para ser comida.')
+      req.flash("error", "Não há pessoa para ser comida.");
     } else {
-      req.flash('success', 'A pessoa foi inteiramente (não apenas cérebro) engolida.')
+      req.flash(
+        "success",
+        "A pessoa foi inteiramente (não apenas cérebro) engolida."
+      );
     }
-    
   } catch (error) {
-    req.flash('error', `Erro desconhecido. Descrição: ${error}`)
-
+    req.flash("error", `Erro desconhecido. Descrição: ${error}`);
   } finally {
-    res.redirect('/')
+    res.redirect("/");
   }
-
-})
-
+});
 
 /* GET formulario de registro de nova pessoa */
-router.get('/new/', (req, res) => {
-  res.render('new-person', {
-    success: req.flash('success'),
-    error: req.flash('error')
-  })
-})
-
+router.get("/new/", (req, res) => {
+  res.render("new-person", {
+    success: req.flash("success"),
+    error: req.flash("error"),
+  });
+});
 
 /* POST registra uma nova pessoa */
 // Exercício 1: IMPLEMENTAR AQUI
@@ -89,6 +82,48 @@ router.get('/new/', (req, res) => {
 //      - Em caso de sucesso do INSERT, colocar uma mensagem feliz
 //      - Em caso de erro do INSERT, colocar mensagem vermelhinha
 
+router.post("/", async (req, res, next) => {
+  const userName = req.body.name;
+
+  if (!userName) {
+    req.flash("error", "Digite o nome");
+    res.redirect("/");
+    return;
+  }
+
+  try {
+    const [insertResult] = await db.execute(
+      "INSERT INTO person VALUES (NULL, ?, 1, NULL)",
+      [userName]
+    );
+
+    if (!insertResult || insertResult.insertedRows < 1) {
+      res.format({
+        html: () => {
+          req.flash("error", `Não foi possivel inserir ${userName}.`);
+
+          res.redirect("/people");
+        },
+        json: () => res.status(418).send({}),
+      });
+
+      throw new Error(`Não foi possivel inserir ${userName}`);
+    }
+
+    res.format({
+      html: () => {
+        req.flash("success", `${userName} se juntou ao jardim`);
+        res.redirect("/people/");
+      },
+      json: () => res.status(200).send({}),
+    });
+  } catch (err) {
+    console.error(err);
+    err.friendlyMessage =
+      "Um erro ocorreu ao tentar inserir a pessoa. Tente novamente";
+    next(err);
+  }
+});
 
 /* DELETE uma pessoa */
 // Exercício 2: IMPLEMENTAR AQUI
@@ -98,5 +133,43 @@ router.get('/new/', (req, res) => {
 //      - Em caso de sucesso do INSERT, colocar uma mensagem feliz
 //      - Em caso de erro do INSERT, colocar mensagem vermelhinha
 
+router.delete("/:id", async (req, res) => {
+  const personId = req.params.id;
 
-export default router
+  try {
+    const [deleteResult] = await db.execute(`DELETE FROM person WHERE id=?`, [
+      personId,
+    ]);
+
+    if (!deleteResult || deleteResult.affectedRows < 1) {
+      res.format({
+        html: () => {
+          req.flash(
+            "error",
+            `A pessoa de id = ${personId} não pôde ser deletada. Tente novamente.`
+          );
+
+          res.redirect("/people");
+        },
+        json: () => res.status(418).send({}),
+      });
+
+      throw new Error(`A pessoa de id ${personId} não foi excluída`);
+    }
+
+    res.format({
+      html: () => {
+        req.flash("success", `Pessoa de id ${personId} eliminada!`);
+
+        res.redirect("/people");
+      },
+      json: () => res.status(200).send({}),
+    });
+  } catch (err) {
+    console.error(err);
+    err.friendlyMessage = "Erro ao deletar pessoa.";
+    next(err);
+  }
+});
+
+export default router;
